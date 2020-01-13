@@ -38,6 +38,7 @@ class Game:
         self.turns = turns
         self.key, self.score, self.turn = DEFAULT_VALUES
         self.snake = [[10, 30], [10, 29], [10, 28]]
+        self.positions = []
         self.place_food()
 
     def __iter__(self):
@@ -89,8 +90,12 @@ class Game:
         if self.snake[0] == self.food:
             self.score += 10
             self.place_food()
+            self.positions = []
         else:
             last = self.snake.pop()
+            if self.turns and last in self.positions:
+                raise StopIteration
+            self.positions.append(last)
             if self.best:
                 self.win.addch(last[0], last[1], ' ')
         if self.best:
@@ -137,6 +142,7 @@ def game_loop(data):
     IA = NeuralNetwork(data["weights"])
     score = 0
     turn = 0
+    used = []
     for snake, food, score, turn in game:
         pseudo_map = get_map(snake, food, data["horizon"])
         keys = IA.play(pseudo_map)
@@ -150,20 +156,21 @@ def game_loop(data):
             KEY = KEY_RIGHT
         else:
             raise Exception("This should not happen")
+        if KEY not in used:
+            used.append(KEY)
 
     if data["best"]:
         curses.endwin()
     data["score"] = round(score)
     data["turn"] = turn
+    data["keys"] = len(used)
     return data
 
 
 def train(args):
-    global LBEST
+    global LBESTS
     data_list = []
-    nbest = round(args.snakes / 10)
-    if nbest == 0:
-        nbest = 1
+    nbest = args.nbest
     ncopy = round(args.snakes / nbest) - 1
 
     square_size = args.horizon + args.horizon + 1
@@ -183,12 +190,21 @@ def train(args):
     for gen in range(1, args.gens + 1):
         ret = pool.map(game_loop, data_list)
         # ret = list(map(game_loop, data_list))
-        ret.sort(key=lambda x: -x["score"] + (x['turns'] - x['turn']) / gen)
+        ret.sort(key=lambda x: -(x['keys'] * 5) - x["score"] + (x['turns'] - (x['turn'] + args.step)))
         bests = ret[:nbest]
+        print("Gen", gen, ":", *list((x["score"], "{}/{}".format(x["turn"], x["turns"])) for x in bests[:10]))
+
+        bests[0]["best"] = args.ncurse
+        LBESTS = bests[:3]
+        if gen == args.gens:
+            continue
+
         for data in bests:
+            if data["turn"] >= data["turns"] - args.step:
+                data["turns"] += args.step
+
             data["best"] = False
             data["keepSeed"] = False
-            data["turns"] += args.step
 
         based_on_bests = []
         bestPos = 0
@@ -206,36 +222,36 @@ def train(args):
 
         data_list = [*bests, *based_on_bests]
 
-        bests[0]["best"] = args.ncurse
-        print("Gen", gen, ":", *list((x["score"], x["turn"]) for x in bests[:10]))
-        LBEST = bests[0]
-
-    return best[0]
+    return LBESTS
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Snake Neural AI")
-    parser.add_argument('-s', '--seed', type=int, dest='seed', help='Seed to use', default=random())
+    parser.add_argument('-s', '--seed', type=float, dest='seed', help='Seed to use', default=random())
     parser.add_argument('-sn', '--snakes', type=int, dest='snakes', help='Number of snakes per gen', default=1000)
     parser.add_argument('-g', '--gen', type=int, dest='gens', help='Number of gen', default=1000)
     parser.add_argument('-hb', '--hide-best', dest='ncurse', action='store_false', help='Hide best of each gen', default=True)
     parser.add_argument('-it', '--init-turns', type=int, dest='fstep', help='Start with x step', default=20)
     parser.add_argument('-step', '--step', type=int, dest='step', help='Number of steps', default=10)
+    parser.add_argument('-nb', '--num-best', type=int, dest='nbest', help='Number of bests duplicated', default=10)
     parser.add_argument('-sh', '--snake-horizon', type=int, dest='horizon', help='Vision of the snake', default=1)
 
     args = parser.parse_args()
 
     seed(args.seed)
 
-    LBEST = None
+    LBESTS = None
     try:
-        best = train(args)
-    except:
-        best = LBEST
+        bests = train(args)
+    except KeyboardInterrupt:
+        bests = LBESTS
         print('Leaving')
         sleep(1)
+        input('Continue ? (press enter)')
 
-    best["best"] = True
-    best["turns"] = None
-    game_loop(best)
-    print(args.seed, ':', best["score"], best["turn"], "/", best["turns"])
+    for best in bests:
+        best["best"] = True
+        best["turns"] = None
+        game_loop(best)
+        print(best["score"], best["turn"])
+    print(args.seed)
