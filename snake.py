@@ -9,6 +9,8 @@ from time import sleep
 from random import randint, random, seed
 
 DEFAULT_VALUES = (KEY_RIGHT, 0, 0)
+HEIGHT = 19
+WIDTH = 59
 KEY = KEY_RIGHT
 
 
@@ -47,7 +49,7 @@ class Game:
     def place_food(self):
         food = []
         while food == []:
-            food = [randint(1, 18), randint(1, 58)]
+            food = [randint(1, HEIGHT - 1), randint(1, WIDTH - 1)]
             if food in self.snake:
                 food = []
         if self.best:
@@ -83,7 +85,7 @@ class Game:
         ])
 
         if self.snake[0][0] == 0 or self.snake[0][1] == 0 \
-                or self.snake[0][0] == 19 or self.snake[0][1] == 59 \
+                or self.snake[0][0] == HEIGHT or self.snake[0][1] == WIDTH \
                 or self.snake[0] in self.snake[1:]:
             raise StopIteration
 
@@ -115,7 +117,7 @@ def get_map(snake, food, horizon=1):
     for x in range(-horizon, horizon + 1):
         for y in range(-horizon, horizon + 1):
             # Border
-            if head[0] + x <= 0 or head[1] + y <= 0 or head[0] + x >= 19 or head[1] + y >= 59:
+            if head[0] + x <= 0 or head[1] + y <= 0 or head[0] + x >= HEIGHT or head[1] + y >= WIDTH:
                 pseudo_map[i] = -1
             # Food
             elif food == [head[0] + x, head[1] + y]:
@@ -128,6 +130,11 @@ def get_map(snake, food, horizon=1):
                         break
             if x != 0 or y != 0:
                 i += 1
+
+    pseudo_map.append((head[0] - food[0]) / HEIGHT)
+    pseudo_map.append((head[1] - food[1]) / WIDTH)
+    pseudo_map.append((food[0] - head[0]) / HEIGHT)
+    pseudo_map.append((food[1] - head[1]) / WIDTH)
 
     return pseudo_map
 
@@ -179,7 +186,7 @@ def train(args):
 
     for _ in range(args.snakes):
         data_list.append({
-            "weights": np.random.rand(len_map, 4),
+            "weights": np.random.rand(len_map + 4, 4),
             "horizon": args.horizon,
             "turns": args.fstep,
             "best": False,
@@ -194,33 +201,31 @@ def train(args):
         bests = ret[:nbest]
         print("Gen", gen, ":", *list((x["score"], "{}/{}".format(x["turn"], x["turns"])) for x in bests[:10]))
 
-        bests[0]["best"] = args.ncurse
         LBESTS = bests[:3]
         if gen == args.gens:
             continue
 
         for data in bests:
-            if data["turn"] >= data["turns"] - args.step:
+            if data["turn"] > data["turns"] - args.step:
                 data["turns"] += args.step
 
             data["best"] = False
             data["keepSeed"] = False
 
         based_on_bests = []
-        bestPos = 0
         for best in bests:
             for _ in range(ncopy):
                 copy = best.copy()
                 if random() > 0.5:
-                    copy["weights"] = best["weights"] + np.dot(np.random.rand(len_map, 4), 0.1)
+                    copy["weights"] = best["weights"] + np.dot(np.random.rand(len_map + 4, 4), 0.1)
                 else:
-                    copy["weights"] = best["weights"] - np.dot(np.random.rand(len_map, 4), 0.1)
+                    copy["weights"] = best["weights"] - np.dot(np.random.rand(len_map + 4, 4), 0.1)
                 based_on_bests.append(copy)
-            if bestPos < (nbest / 10) / 2:
-                best["keepSeed"] = True
-                bestPos += 1
+        best = bests[0].copy()
+        best["keepSeed"] = True
+        best["best"] = args.ncurse
 
-        data_list = [*bests, *based_on_bests]
+        data_list = [best, *bests, *based_on_bests]
 
     return LBESTS
 
