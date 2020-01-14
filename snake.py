@@ -207,7 +207,7 @@ def train(args):
 
         for data in bests:
             if data["turn"] > data["turns"] - args.step:
-                data["turns"] += args.step
+                data["turns"] += args.step if data['turns'] <= args.step * 100 else args.step * 10
 
             data["best"] = False
             data["keepSeed"] = False
@@ -260,3 +260,12 @@ if __name__ == "__main__":
         game_loop(best)
         print(best["score"], best["turn"])
     print(args.seed)
+    answer = input('Redo without Seed ? (Y/n) ')
+    if answer and answer[0] == 'n':
+        exit()
+    for best in bests:
+        best['keepSeed'] = False
+        best["best"] = True
+        best["turns"] = None
+        game_loop(best)
+        print(best["score"], best["turn"])
