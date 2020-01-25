@@ -21,8 +21,18 @@ class NeuralNetwork:
     def sigmoid(self, x):
         return 1 / (1 + np.exp(-x))
 
+    def randomise(self):
+        for weight in self.weights:
+            if random() <= 0.4:
+                weight -= np.dot(np.random.rand(len(weight), len(weight[0])), 0.1)
+            elif random() <= 0.8:
+                weight += np.dot(np.random.rand(len(weight), len(weight[0])), 0.1)
+
     def play(self, horizon):
-        return self.sigmoid(np.dot(np.array(horizon), self.weights))
+        ret = np.array(horizon)
+        for weight in self.weights:
+            ret = self.sigmoid(np.dot(ret, weight))
+        return ret
 
 
 class Game:
@@ -147,9 +157,11 @@ def game_loop(data):
     seed(data["seed"])
     game = iter(Game(data["best"], data["turns"]))
     IA = NeuralNetwork(data["weights"])
+
+    if data["randomise"]:
+        IA.randomise()
     score = 0
     turn = 0
-    used = []
     for snake, food, score, turn in game:
         pseudo_map = get_map(snake, food, data["horizon"])
         keys = IA.play(pseudo_map)
@@ -163,14 +175,11 @@ def game_loop(data):
             KEY = KEY_RIGHT
         else:
             raise Exception("This should not happen")
-        if KEY not in used:
-            used.append(KEY)
 
     if data["best"]:
         curses.endwin()
     data["score"] = round(score)
     data["turn"] = turn
-    data["keys"] = len(used)
     return data
 
 
@@ -185,11 +194,19 @@ def train(args):
     len_map = area - 1
 
     for _ in range(args.snakes):
+        num_layer = randint(args.minL, args.maxL)
+        output = len_map + 4
+        weights = []
+        for x in range(num_layer + 1):
+            lastoutput = output
+            output = randint(2, 5) if x < num_layer else 4
+            weights.append(np.random.rand(lastoutput, output))
         data_list.append({
-            "weights": np.random.rand(len_map + 4, 4),
+            "weights": weights,
             "horizon": args.horizon,
             "turns": args.fstep,
             "best": False,
+            "randomise": False,
             "keepSeed": False
         })
 
@@ -197,9 +214,9 @@ def train(args):
     for gen in range(1, args.gens + 1):
         ret = pool.map(game_loop, data_list)
         # ret = list(map(game_loop, data_list))
-        ret.sort(key=lambda x: -(x['keys'] * 5) - x["score"] + (x['turns'] - (x['turn'] + args.step)))
+        ret.sort(key=lambda x: - x["score"] + (x['turns'] - x['turn']))
         bests = ret[:nbest]
-        print("Gen", gen, ":", *list((x["score"], "{}/{}".format(x["turn"], x["turns"])) for x in bests[:10]))
+        print("Gen", gen, ":", *list((len(x["weights"]), x["score"], "{}/{}".format(x["turn"], x["turns"])) for x in bests[:10]))
 
         LBESTS = bests[:3]
         if gen == args.gens:
@@ -208,7 +225,7 @@ def train(args):
         for data in bests:
             if data["turn"] > data["turns"] - args.step:
                 data["turns"] += args.step if data['turns'] <= args.step * 100 else args.step * 10
-
+            data["randomise"] = False
             data["best"] = False
             data["keepSeed"] = False
 
@@ -216,10 +233,7 @@ def train(args):
         for best in bests:
             for _ in range(ncopy):
                 copy = best.copy()
-                if random() > 0.5:
-                    copy["weights"] = best["weights"] + np.dot(np.random.rand(len_map + 4, 4), 0.1)
-                else:
-                    copy["weights"] = best["weights"] - np.dot(np.random.rand(len_map + 4, 4), 0.1)
+                copy["randomise"] = True
                 based_on_bests.append(copy)
         best = bests[0].copy()
         best["keepSeed"] = True
@@ -240,6 +254,8 @@ if __name__ == "__main__":
     parser.add_argument('-step', '--step', type=int, dest='step', help='Number of steps', default=10)
     parser.add_argument('-nb', '--num-best', type=int, dest='nbest', help='Number of bests duplicated', default=10)
     parser.add_argument('-sh', '--snake-horizon', type=int, dest='horizon', help='Vision of the snake', default=1)
+    parser.add_argument('-mil', '--min-layer', type=int, dest='minL', help='Minimum hidden Layers', default=0)
+    parser.add_argument('-mal', '--max-layer', type=int, dest='maxL', help='Maximum hidden Layers', default=4)
 
     args = parser.parse_args()
 
