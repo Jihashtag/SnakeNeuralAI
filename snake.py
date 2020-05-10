@@ -22,10 +22,13 @@ class NeuralNetwork:
         return 1 / (1 + np.exp(-x))
 
     def randomise(self):
+        lenWeights = len(self.weights)
+        randval = 0.6 - (lenWeights / 10)
         for weight in self.weights:
-            if random() <= 0.4:
+            randNum = random()
+            if randNum <= randval:
                 weight -= np.dot(np.random.rand(len(weight), len(weight[0])), 0.1)
-            elif random() <= 0.8:
+            elif randNum <= randval * 2:
                 weight += np.dot(np.random.rand(len(weight), len(weight[0])), 0.1)
 
     def play(self, horizon):
@@ -214,20 +217,19 @@ def train(args):
     for gen in range(1, args.gens + 1):
         ret = pool.map(game_loop, data_list)
         # ret = list(map(game_loop, data_list))
-        ret.sort(key=lambda x: - x["score"] + (x['turns'] - x['turn']))
+        ret.sort(key=lambda x: - x["score"] + (x['turns'] - x['turn']) * 2.5 + (x["keepSeed"] and 100 or 0))
         bests = ret[:nbest]
         print("Gen", gen, ":", *list((len(x["weights"]), x["score"], "{}/{}".format(x["turn"], x["turns"])) for x in bests[:10]))
-
-        LBESTS = bests[:3]
-        if gen == args.gens:
-            continue
 
         for data in bests:
             if data["turn"] > data["turns"] - args.step:
                 data["turns"] += args.step if data['turns'] <= args.step * 100 else args.step * 10
             data["randomise"] = False
             data["best"] = False
-            data["keepSeed"] = False
+
+        LBESTS = bests[:3]
+        if gen == args.gens:
+            continue
 
         based_on_bests = []
         for best in bests:
@@ -236,8 +238,8 @@ def train(args):
                 copy["randomise"] = True
                 based_on_bests.append(copy)
         best = bests[0].copy()
-        best["keepSeed"] = True
         best["best"] = args.ncurse
+        best["keepSeed"] = True
 
         data_list = [best, *bests, *based_on_bests]
 
@@ -272,6 +274,7 @@ if __name__ == "__main__":
 
     for best in bests:
         best["best"] = True
+        best["keepSeed"] = True
         best["turns"] = None
         game_loop(best)
         print(best["score"], best["turn"])
@@ -281,7 +284,5 @@ if __name__ == "__main__":
         exit()
     for best in bests:
         best['keepSeed'] = False
-        best["best"] = True
-        best["turns"] = None
         game_loop(best)
         print(best["score"], best["turn"])
